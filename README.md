@@ -41,9 +41,12 @@
 
 このリポジトリには GitHub Pages への公開用ワークフロー（`.github/workflows/pages.yml`）が入っています。
 
-1. このブランチを `main` にマージする
-2. リポジトリの **Settings → Pages** で、Source を **GitHub Actions** に設定
-3. `https://<ユーザー名>.github.io/answer-sheet/` で開けるようになります
+1. このブランチを `main` にマージする（`main` への push でワークフローが動きます）
+2. `https://<ユーザー名>.github.io/answer-sheet/` で開けるようになります
+
+Pages が未設定のリポジトリでもワークフロー側から有効化します（`configure-pages` の `enablement: true`）。
+うまくいかない場合は **Settings → Pages** で Source を **GitHub Actions** に設定してから、
+Actions タブで「Deploy to GitHub Pages」を Re-run してください。
 
 スマホのブラウザでそのURLを開き、ホーム画面に追加しておくとアプリのように使えます。
 （公開したくない場合は、`index.html` を端末に保存してブラウザで開くだけでも同じように動きます。）
