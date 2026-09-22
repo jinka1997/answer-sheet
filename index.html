@@ -57,9 +57,15 @@
     background:var(--bg);border:1px solid var(--line);border-radius:10px;
   }
   /* sheet list */
-  .sheet-item{display:flex;align-items:center;gap:12px;padding:14px 16px;border-bottom:1px solid var(--line)}
+  .sheet-item{display:flex;align-items:center;gap:12px;padding:14px 16px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+  .sheet-item .acts{display:flex;gap:6px;flex-wrap:wrap;margin-left:auto}
+  .badge{display:inline-block;font-size:11px;font-weight:700;padding:1px 8px;border-radius:999px;border:1px solid var(--line);margin:4px 6px 0 0;color:var(--muted)}
+  .badge.done{color:var(--ok);border-color:var(--ok);background:var(--ok-weak)}
+  .badge.doing{color:var(--accent);border-color:var(--accent);background:var(--accent-weak)}
+  .search{width:100%;padding:10px 12px;font-size:16px;background:var(--panel);border:1px solid var(--line);border-radius:10px;margin-bottom:10px}
   .sheet-item:last-child{border-bottom:none}
-  .sheet-item .grow{flex:1;min-width:0;cursor:pointer}
+  .sheet-item .grow{flex:1 1 100%;min-width:0;cursor:pointer}
+  @media (min-width:560px){ .sheet-item .grow{flex:1 1 auto} }
   .sheet-item .name{font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .list{padding:0;overflow:hidden}
   .empty{padding:36px 16px;text-align:center;color:var(--muted)}
@@ -152,17 +158,19 @@
       </div>
     </div>
 
-    <h2>保存された解答用紙</h2>
+    <h2>保存した解答を呼び出す</h2>
+    <input id="searchBox" class="search" type="search" placeholder="名前でしぼり込み（例：模試①）">
     <div class="card list" id="sheetList"></div>
 
-    <h2>データ</h2>
+    <h2>ファイルで保存・持ち運び</h2>
     <div class="row">
-      <button class="btn sm" id="exportAllBtn">全件をJSONで書き出し</button>
-      <button class="btn sm" id="importBtn">JSONを読み込み</button>
+      <button class="btn sm" id="exportAllBtn">すべてファイルに保存（JSON）</button>
+      <button class="btn sm" id="importBtn">ファイルから読み込む</button>
       <input type="file" id="importFile" accept="application/json,.json" class="hidden">
     </div>
     <p class="muted" style="margin-top:10px">
-      解答はこの端末のブラウザ（localStorage）に自動保存されます。端末やブラウザを変えるときは書き出し／読み込みをご利用ください。
+      解答は名前をつけてこの端末のブラウザ（localStorage）に自動保存され、上の一覧からいつでも呼び出せます。データベースやサーバーは使いません。<br>
+      別の端末・ブラウザで使うときや、バックアップを残したいときはファイルに保存して読み込んでください。
     </p>
   </section>
 
@@ -177,6 +185,7 @@
         <span class="timer" id="timer">00:00</span>
         <button class="btn sm" id="timerBtn">開始</button>
         <span style="flex:1"></span>
+        <span class="muted" id="savedAt"></span>
         <button class="btn sm" id="gradeBtn">採点する</button>
       </div>
       <p class="muted" id="modeHint" style="margin:8px 0 0">選んだ選択肢をもう一度押すと取り消せます。</p>
@@ -185,12 +194,20 @@
     <div id="result" class="result hidden"></div>
     <div class="qgrid" id="qgrid"></div>
 
-    <h2>この解答用紙の操作</h2>
+    <h2>保存</h2>
     <div class="row">
+      <button class="btn sm" id="renameBtn">名前をつけて保存</button>
+      <button class="btn sm" id="saveAsBtn">別名で保存（コピー）</button>
+      <button class="btn sm" id="retryBtn">再挑戦用にコピー（正解だけ引き継ぐ）</button>
+    </div>
+    <p class="muted" style="margin-top:8px">入力した内容はタップするたびに自動保存され、一覧から呼び出せます。</p>
+
+    <h2>書き出し・編集</h2>
+    <div class="row">
+      <button class="btn sm" id="exportCsvBtn">CSVに書き出し</button>
+      <button class="btn sm" id="exportOneBtn">ファイルに保存（JSON）</button>
       <button class="btn sm" id="addQBtn">問題を10問ふやす</button>
-      <button class="btn sm" id="renameBtn">名前と問題数を変更</button>
-      <button class="btn sm" id="exportCsvBtn">CSVで書き出し</button>
-      <button class="btn sm" id="exportOneBtn">JSONで書き出し</button>
+      <button class="btn sm" id="resizeBtn">問題数を変更</button>
       <button class="btn sm" id="clearAnsBtn">解答をすべて消す</button>
       <button class="btn sm danger" id="deleteBtn">この解答用紙を削除</button>
     </div>
@@ -231,6 +248,8 @@
   function save(quiet){
     try{
       localStorage.setItem(KEY, JSON.stringify(db));
+      var at = document.getElementById("savedAt");
+      if(at) at.textContent = "保存済み " + new Date().toLocaleTimeString("ja-JP", {hour:"2-digit", minute:"2-digit"});
       if(!quiet) toast("保存しました");
     }catch(e){
       alert("保存できませんでした（ブラウザの保存容量やプライベートモードをご確認ください）\n" + e.message);
@@ -292,27 +311,60 @@
   /* ---------- 一覧画面 ---------- */
   function renderHome(){
     var list = document.getElementById("sheetList");
+    var q = (document.getElementById("searchBox").value || "").trim().toLowerCase();
     var sheets = db.sheets.slice().sort(function(a,b){ return b.updatedAt - a.updatedAt; });
+    if(q) sheets = sheets.filter(function(s){ return s.title.toLowerCase().indexOf(q) >= 0; });
+
+    if(!db.sheets.length){
+      list.innerHTML = '<div class="empty">まだ保存された解答がありません。<br>上のフォームから作成してください。</div>';
+      return;
+    }
     if(!sheets.length){
-      list.innerHTML = '<div class="empty">まだ解答用紙がありません。<br>上のフォームから作成してください。</div>';
+      list.innerHTML = '<div class="empty">「' + esc(q) + '」に一致する解答用紙はありません。</div>';
       return;
     }
     list.innerHTML = sheets.map(function(s){
-      var done = answeredCount(s);
-      var info = done + " / " + s.count + " 問";
-      if(hasCorrect(s)){
+      var done = answeredCount(s), info = "解答 " + done + " / " + s.count + " 問";
+      var badge = '<span class="badge doing">' +
+                  (done === 0 ? "未解答" : (done < s.count ? "解答中" : "解答ずみ")) + '</span>';
+      if(done > 0 && hasCorrect(s)){
         var r = grade(s);
-        info += "　正答 " + r.ok + " / " + r.total + "（" + r.rate + "%）";
+        badge += '<span class="badge done">正答率 ' + r.rate + '%</span>';
+        info += "　正答 " + r.ok + " / " + r.total;
+      }else if(hasCorrect(s)){
+        badge += '<span class="badge">正解入力ずみ</span>';
       }
-      info += "　" + new Date(s.updatedAt).toLocaleString("ja-JP");
+      info += "　更新 " + new Date(s.updatedAt).toLocaleString("ja-JP");
       return '<div class="sheet-item">' +
                '<div class="grow" data-open="' + s.id + '">' +
                  '<div class="name">' + esc(s.title) + '</div>' +
+                 '<div>' + badge + '</div>' +
                  '<div class="muted">' + esc(info) + '</div>' +
                '</div>' +
-               '<button class="btn sm" data-open="' + s.id + '">開く</button>' +
+               '<div class="acts">' +
+                 '<button class="btn sm" data-open="' + s.id + '">開く</button>' +
+                 '<button class="btn sm ghost" data-rename="' + s.id + '">名前を変更</button>' +
+                 '<button class="btn sm ghost" data-dup="' + s.id + '">複製</button>' +
+                 '<button class="btn sm ghost danger" data-del="' + s.id + '">削除</button>' +
+               '</div>' +
              '</div>';
     }).join("");
+  }
+
+  function byId(id){
+    for(var i=0;i<db.sheets.length;i++) if(db.sheets[i].id === id) return db.sheets[i];
+    return null;
+  }
+  function copySheet(s, title, keepAnswers){
+    var c = newSheet(title, s.count, s.labelStyle);
+    c.correct = s.correct.slice();
+    if(keepAnswers){
+      c.answers = s.answers.slice();
+      c.flags = s.flags.slice();
+      c.elapsedMs = s.elapsedMs;
+    }
+    db.sheets.push(c);
+    return c;
   }
 
   /* ---------- 解答画面 ---------- */
@@ -486,9 +538,32 @@
     go("sheet", s.id);
   });
 
+  document.getElementById("searchBox").addEventListener("input", renderHome);
+
   document.getElementById("sheetList").addEventListener("click", function(e){
-    var t = e.target.closest("[data-open]");
-    if(t) go("sheet", t.dataset.open);
+    var t = e.target.closest("[data-open],[data-rename],[data-dup],[data-del]");
+    if(!t) return;
+    if(t.dataset.open){ go("sheet", t.dataset.open); return; }
+
+    var s = byId(t.dataset.rename || t.dataset.dup || t.dataset.del);
+    if(!s) return;
+    if(t.dataset.rename){
+      var name = prompt("保存する名前", s.title);
+      if(name === null) return;
+      if(!name.trim()){ alert("名前を入力してください。"); return; }
+      s.title = name.trim(); touch(s); save(); renderHome(); return;
+    }
+    if(t.dataset.dup){
+      var dupName = prompt("複製の名前", s.title + "（コピー）");
+      if(dupName === null) return;
+      copySheet(s, dupName.trim() || (s.title + "（コピー）"), true);
+      save(); renderHome(); toast("複製しました"); return;
+    }
+    if(t.dataset.del){
+      if(!confirm("「" + s.title + "」を削除します。元に戻せません。よろしいですか？")) return;
+      db.sheets = db.sheets.filter(function(x){ return x.id !== s.id; });
+      save(); renderHome();
+    }
   });
 
   document.getElementById("backBtn").addEventListener("click", function(){ go("home"); });
@@ -568,14 +643,37 @@
 
   document.getElementById("renameBtn").addEventListener("click", function(){
     var s = current(); if(!s) return;
-    var title = prompt("タイトル", s.title);
+    var title = prompt("保存する名前", s.title);
     if(title === null) return;
+    if(!title.trim()){ alert("名前を入力してください。"); return; }
+    s.title = title.trim(); touch(s); save();
+    document.getElementById("appTitle").textContent = s.title;
+  });
+
+  document.getElementById("saveAsBtn").addEventListener("click", function(){
+    var s = current(); if(!s) return;
+    var title = prompt("別名で保存（解答も正解もコピーします）", s.title + "（コピー）");
+    if(title === null) return;
+    var c = copySheet(s, title.trim() || (s.title + "（コピー）"), true);
+    save(true); go("sheet", c.id); toast("別名で保存しました");
+  });
+
+  document.getElementById("retryBtn").addEventListener("click", function(){
+    var s = current(); if(!s) return;
+    if(!hasCorrect(s) && !confirm("正解がまだ入力されていません。空の解答用紙を作りますか？")) return;
+    var title = prompt("再挑戦用の名前（正解だけを引き継ぎます）", s.title + "（再挑戦）");
+    if(title === null) return;
+    var c = copySheet(s, title.trim() || (s.title + "（再挑戦）"), false);
+    save(true); go("sheet", c.id); toast("再挑戦用の解答用紙を作成しました");
+  });
+
+  document.getElementById("resizeBtn").addEventListener("click", function(){
+    var s = current(); if(!s) return;
     var cntStr = prompt("問題数（1〜500）", String(s.count));
     if(cntStr === null) return;
     var cnt = parseInt(cntStr, 10);
     if(!(cnt >= 1 && cnt <= 500)){ alert("問題数は 1〜500 で入力してください。"); return; }
     if(cnt < s.count && !confirm("問題数を減らすと、" + (cnt+1) + "問目以降の解答は削除されます。よろしいですか？")) return;
-    s.title = title.trim() || s.title;
     resize(s, cnt); touch(s); save(); renderSheet();
   });
 
